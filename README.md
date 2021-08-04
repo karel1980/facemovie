@@ -27,3 +27,7 @@ faces using mediapipe.
 Shortcomings:
 - Does not focus on a specific face (no face recognition)
 - No effort was done to generate the actual video file.
+
+## Credits
+
+Celebrity faces dataset: https://www.kaggle.com/dansbecker/5-celebrity-faces-dataset
