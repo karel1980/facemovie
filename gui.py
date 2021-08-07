@@ -21,6 +21,7 @@ class Window(QMainWindow):
         self.create_imagelist()
 
         self.current_project_path = None
+        self.current_image_faces = []
 
         self.setWindowTitle("Facemovie builder")
         self.resize(640, 480)
@@ -56,6 +57,11 @@ class Window(QMainWindow):
         print("setting selected slide", slide)
         path, loc = slide
         img = cv2.imread(path)
+        self.current_image_faces = face_recognition.face_locations(img)
+
+        for face in self.current_image_faces:
+            cv2.rectangle(img, (face[1], face[0]), (face[3], face[2]), (200, 200, 200))
+
         if loc is not None:
             cv2.rectangle(img, (loc[1], loc[0]), (loc[3], loc[2]), (0, 255, 0))
 
@@ -64,6 +70,7 @@ class Window(QMainWindow):
         item = self.get_selected_item()
         if item is not None:
             item.setData(slide, 1)
+
         self.selected_image.setPixmap(pixmap)
 
     def clear_selected_face(self):
