@@ -122,29 +122,42 @@ class Window(QMainWindow):
         def select_next_face():
             select_face(1)
 
+        def set_face_from_mouseclick(a):
+            item = self.get_selected_item()
+            if item is None:
+                return  # no image selected
+            slide = item.data(1)
+            if slide is None:
+                return  # data for selected image
+            path = slide[0]
+            location = (a.y() - 5, a.x() - 5, a.y() + 5, a.x() + 5)
+            self.set_selected_slide((path, location))
+
         def select_face(offset):
             item = self.get_selected_item()
             if item is None:
                 return  # no image selected
             slide = item.data(1)
             if slide is None:
-                return # no image selected
+                return  # no image selected
 
             path, location = slide
-            if location is not None: # TODO: change location to tuples in project.load
+            if location is not None:  # TODO: change location to tuples in project.load
                 location = tuple(location)
 
             if len(self.current_image_faces) == 0:
-                return # no faces in current image
+                return  # no faces in current image
 
-            if location is None or location not in self.current_image_faces:
+            if (location is None) or (location not in self.current_image_faces):
                 self.set_selected_slide((path, self.current_image_faces[0]))
+                return
 
             current_face_index = self.current_image_faces.index(location)
             if current_face_index < 0:
                 self.set_selected_slide((path, 0))
             else:
-                face = self.current_image_faces[(current_face_index + offset + len(self.current_image_faces)) % len(self.current_image_faces)]
+                face = self.current_image_faces[
+                    (current_face_index + offset + len(self.current_image_faces)) % len(self.current_image_faces)]
                 self.set_selected_slide((path, face))
 
         btn_prev = QPushButton("prev")
@@ -167,6 +180,8 @@ class Window(QMainWindow):
 
         right_panel_layout.addWidget(slide_tool_bar)
         self.selected_image = QLabel("selected image")
+        self.selected_image.mousePressEvent = set_face_from_mouseclick
+
         right_panel_layout.addWidget(self.selected_image)
         right_panel.setLayout(right_panel_layout)
 
