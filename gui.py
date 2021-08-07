@@ -54,6 +54,10 @@ class Window(QMainWindow):
         self.image_list = image_list
 
     def set_selected_slide(self, slide):
+        if slide is None:
+            self.selected_image.setPixmap(QPixmap(320, 240))
+            return
+
         print("setting selected slide", slide)
         path, loc = slide
         img = cv2.imread(path)
@@ -112,6 +116,37 @@ class Window(QMainWindow):
                 row, col = (selected[0].row() + list_size - 1) % self.image_list_model.rowCount(), selected[0].column()
                 self.image_list.setCurrentIndex(self.image_list_model.index(row, col))
 
+        def select_prev_face():
+            select_face(-1)
+
+        def select_next_face():
+            select_face(1)
+
+        def select_face(offset):
+            item = self.get_selected_item()
+            if item is None:
+                return  # no image selected
+            slide = item.data(1)
+            if slide is None:
+                return # no image selected
+
+            path, location = slide
+            if location is not None: # TODO: change location to tuples in project.load
+                location = tuple(location)
+
+            if len(self.current_image_faces) == 0:
+                return # no faces in current image
+
+            if location is None or location not in self.current_image_faces:
+                self.set_selected_slide((path, self.current_image_faces[0]))
+
+            current_face_index = self.current_image_faces.index(location)
+            if current_face_index < 0:
+                self.set_selected_slide((path, 0))
+            else:
+                face = self.current_image_faces[(current_face_index + offset + len(self.current_image_faces)) % len(self.current_image_faces)]
+                self.set_selected_slide((path, face))
+
         btn_prev = QPushButton("prev")
         btn_prev.clicked.connect(go_to_prev)
         btn_next = QPushButton("next")
@@ -119,9 +154,16 @@ class Window(QMainWindow):
         btn_clear = QPushButton("clear")
         btn_clear.clicked.connect(on_clear)
 
+        btn_prev_face = QPushButton("prev face")
+        btn_prev_face.clicked.connect(select_prev_face)
+        btn_next_face = QPushButton("next face")
+        btn_next_face.clicked.connect(select_next_face)
+
         slide_tool_bar.addWidget(btn_prev)
         slide_tool_bar.addWidget(btn_next)
         slide_tool_bar.addWidget(btn_clear)
+        slide_tool_bar.addWidget(btn_prev_face)
+        slide_tool_bar.addWidget(btn_next_face)
 
         right_panel_layout.addWidget(slide_tool_bar)
         self.selected_image = QLabel("selected image")
@@ -172,7 +214,9 @@ class Window(QMainWindow):
                 proj = project.Project()
                 for i in range(self.image_list_model.rowCount()):
                     item = self.image_list_model.item(i)
-                    slide = item.data()
+                    slide = item.data(1)
+                    if slide is None:
+                        continue
                     proj.add_slide(slide[0], slide[1])
                 proj.save(file)
             else:
@@ -212,6 +256,8 @@ class Window(QMainWindow):
 
     def start_new_project(self):
         self.image_list_model.clear()
+        self.current_image_faces = []
+        self.set_selected_slide(None)
 
 
 def main():
