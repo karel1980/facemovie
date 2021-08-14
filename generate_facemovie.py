@@ -1,3 +1,4 @@
+import math
 import sys
 import time
 
@@ -18,6 +19,19 @@ class Slide:
         self.output_eyes = output_eyes
         self.border_color = border_color
         self.border_thickness = border_thickness
+
+    def get_left_eye_input(self):
+        return self.input_eyes[0]
+
+    def get_input_eye_angle(self):
+        input_eye_vec = self.input_eyes[1] - self.input_eyes[0]
+        target_eye_vec = np.array([100, 0])
+        angle = calculate_angle(input_eye_vec, target_eye_vec)
+        return angle
+
+    def get_scale(self):
+        return np.linalg.norm(self.output_eyes[1] - self.output_eyes[0]) / np.linalg.norm(
+            self.input_eyes[1] - self.input_eyes[0])
 
 
 class Settings:
@@ -83,7 +97,7 @@ def calculate_slides(project, settings, face_mesh):
         # TODO: if there are multiple faces, use the one closest to item[1]
         src = get_src_points(mesh_result.multi_face_landmarks[0], img.shape)
         dst = get_target_points(src, settings)
-        result.append(Slide(item[0], src, dst))
+        result.append(Slide(item[0], src, dst, (255, 255, 255, 255), 10))
 
     return result
 
@@ -169,8 +183,7 @@ def generate_frames(settings, slides):
             current_slide = slides[slide_idx]
             print('loading face', current_slide.img_path)
             img = cv2.imread(current_slide.img_path)
-            current_face_img = orient_image(img, current_slide.input_eyes, current_slide.output_eyes,
-                                            settings.target_size)
+            current_face_img = orient_image(img, current_slide, settings.target_size)
 
             added_to_backdrop = False
 
@@ -233,25 +246,23 @@ def overlay_image(base, overlay, alpha=1.0):
     return base.astype(np.uint8)
 
 
-def oriented_face(face_mesh, img):
-    target_shape = 1024, 1280
-    faces = get_face_landmarks(face_mesh, img)
-    face_landmarks = faces.multi_face_landmarks[0]
-    src = get_src_points(face_landmarks, img.shape)
-    dst = get_target_points(src, target_shape)
-    img, result = orient_image(img, src, dst, target_shape)
-    return img, result
+def orient_image(img, slide, target_shape):
+    scale = slide.get_scale()
+    border_thickness = int(10 / scale) # todo: 20 = border thickness in output; make this a setting
+    img = cv2.copyMakeBorder(img, border_thickness, border_thickness, border_thickness, border_thickness,
+                             cv2.BORDER_CONSTANT, value=(255,255,255,255))
 
-
-def orient_image(img, src, dst, target_shape):
+    input_eye = slide.input_eyes[0] + border_thickness
     img_with_alpha = add_alpha_channel(img)
-    M = cv2.getAffineTransform(src, dst)
-    result = np.zeros((target_shape[0], target_shape[1], 4))
+    affine_transformation_matrix = cv2.getRotationMatrix2D(input_eye, - slide.get_input_eye_angle() * 180 / math.pi, scale)
+    affine_transformation_matrix[:, 2] += slide.output_eyes[0] - input_eye
+
     dsize = (target_shape[1], target_shape[0])
+    result = np.zeros((target_shape[0], target_shape[1], 4))
 
     # Note: cv2.BORDER_TRANSPARENT didn't work as expected,
     # so manually set cv2.BORDER_CONSTANT with a transparent borderValue
-    result = cv2.warpAffine(img_with_alpha, M, dsize, result, flags=cv2.INTER_LINEAR,
+    result = cv2.warpAffine(img_with_alpha, affine_transformation_matrix, dsize, result, flags=cv2.INTER_LINEAR,
                             borderMode=cv2.BORDER_CONSTANT, borderValue=(0, 0, 0, 0))
 
     return result
@@ -263,5 +274,15 @@ def add_alpha_channel(img):
     return cv2.merge((b_channel, g_channel, r_channel, alpha_channel))
 
 
+def bordertest():
+    img = cv2.imread('examples/me/photo001.jpg')
+    cv2.imshow('before', img)
+
+    img2 = cv2.copyMakeBorder(img, 10, 10, 10, 10, cv2.BORDER_CONSTANT, value=(255, 255, 255, 255))
+    cv2.imshow('after', img2)
+    cv2.waitKey(0)
+
+
 if __name__ == "__main__":
+    # bordertest()
     main()
