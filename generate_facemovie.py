@@ -12,10 +12,12 @@ RIGHT_EYE = 249
 
 
 class Slide:
-    def __init__(self, img_path, input_eyes, output_eyes):
+    def __init__(self, img_path, input_eyes, output_eyes, border_color, border_thickness):
         self.img_path = img_path
         self.input_eyes = input_eyes
         self.output_eyes = output_eyes
+        self.border_color = border_color
+        self.border_thickness = border_thickness
 
 
 class Settings:
@@ -231,38 +233,6 @@ def overlay_image(base, overlay, alpha=1.0):
     return base.astype(np.uint8)
 
 
-def single():
-    proj = project.Project.load('project.json')
-    settings = Settings()
-    face_mesh = mp.solutions.face_mesh.FaceMesh(static_image_mode=False, max_num_faces=10)
-    slides = calculate_slides(proj, settings, face_mesh)
-
-    backdrop = np.zeros((settings.target_size[0], settings.target_size[1], 3))
-
-    slide1 = slides[0]
-    print(slide1[0])
-    print(slide1[1])
-    print(slide1[2])
-
-    img1 = cv2.imread(slide1[0])
-    print("sss", img1.shape)
-
-    face1 = orient_image(img1, slide1[1], slide1[2], settings.target_size)
-
-    slide2 = slides[1]
-    img2 = cv2.imread(slide2[0])
-    face2 = orient_image(img2, slide2[1], slide2[2], settings.target_size)
-
-    while True:
-
-        cv2.imshow('backdrop', backdrop)
-        cv2.imshow('face1', face1)
-        cv2.imshow('face2', face2)
-        key = cv2.waitKey(0)
-        if key == ord('q'):
-            return
-
-
 def oriented_face(face_mesh, img):
     target_shape = 1024, 1280
     faces = get_face_landmarks(face_mesh, img)
@@ -294,5 +264,4 @@ def add_alpha_channel(img):
 
 
 if __name__ == "__main__":
-    # single()
     main()
