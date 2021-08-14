@@ -11,9 +11,16 @@ LEFT_EYE = 7
 RIGHT_EYE = 249
 
 
+class Slide:
+    def __init__(self, img_path, input_eyes, output_eyes):
+        self.img_path = img_path
+        self.input_eyes = input_eyes
+        self.output_eyes = output_eyes
+
+
 class Settings:
     def __init__(self, fade_in_millis=500, show_millis=2000, fade_out_millis=1000, target_size=(768, 1024),
-                 fps = 25):
+                 fps=25):
         self.fade_in_millis = fade_in_millis
         self.show_millis = show_millis
         self.fade_out_millis = fade_out_millis
@@ -30,14 +37,14 @@ def main():
     output_file = sys.argv[2]
 
     proj = project.Project.load(project_file)
-    settings = Settings(fps=60)  # TODO: make settings part of the project?
+    settings = Settings(fps=25)  # TODO: make settings part of the project?
 
     generate_facemovie(proj, settings, output_file)
 
 
 def generate_facemovie(project, settings, output_file):
     face_mesh = mp.solutions.face_mesh.FaceMesh(static_image_mode=False, max_num_faces=10)
-    slides = calculate_slide_data(project, settings, face_mesh)
+    slides = calculate_slides(project, settings, face_mesh)
     next_print_time = time.time()
     total_frames = calculate_total_frames(settings, len(slides))
     w, h = (settings.target_size[1], settings.target_size[0])
@@ -55,8 +62,8 @@ def generate_facemovie(project, settings, output_file):
     vid.release()
 
 
-def calculate_slide_data(project, settings, face_mesh):
-    """ returns a list of (path, src, dst) tuples, where src and dst are reference points used for orienting and scaling the source image to the output shape"""
+def calculate_slides(project, settings, face_mesh):
+    """ returns a list of Slides """
 
     result = []
     for item in project.playlist:
@@ -73,18 +80,10 @@ def calculate_slide_data(project, settings, face_mesh):
 
         # TODO: if there are multiple faces, use the one closest to item[1]
         src = get_src_points(mesh_result.multi_face_landmarks[0], img.shape)
-        dst = get_target_points(src, settings.target_size)
-        result.append((item[0], src, dst))
+        dst = get_target_points(src, settings)
+        result.append(Slide(item[0], src, dst))
 
     return result
-
-
-def find_nearest_face(img, target_location, faces):
-    h, w = img.shape[0], img.shape[1]
-
-    if len(faces) == 0:
-        return None
-    return faces[0]
 
 
 def get_transformation_points(img, face, target_shape):
@@ -101,8 +100,8 @@ def get_src_points(face_landmarks, input_shape):
     return np.float32([left_eye, right_eye, (0, 0)])
 
 
-def get_target_points(src, target_shape):
-    target_height, target_width = target_shape[0], target_shape[1]
+def get_target_points(src, settings):
+    target_height, target_width = settings.target_size[0], settings.target_size[1]
     left_eye = src[0]
     right_eye = src[1]
     target_left_eye = np.array([(target_width / 2) - 30, (target_height / 2)])
@@ -166,21 +165,18 @@ def generate_frames(settings, slides):
 
         if slides[slide_idx] != current_slide:
             current_slide = slides[slide_idx]
-            print('loading face', current_slide[0])
-            img = cv2.imread(current_slide[0])
-            current_face_img = orient_image(img, current_slide[1], current_slide[2], settings.target_size)
+            print('loading face', current_slide.img_path)
+            img = cv2.imread(current_slide.img_path)
+            current_face_img = orient_image(img, current_slide.input_eyes, current_slide.output_eyes,
+                                            settings.target_size)
 
             added_to_backdrop = False
 
         fade_start = slide_duration * slide_idx
         fade_end = slide_duration * slide_idx + settings.fade_in_millis
 
-        # print("fade_start", fade_start)
-        # print("fade_end", fade_end)
-        # print("frame_time_millis", frame_time_millis)
         alpha = (frame_time_millis - fade_start) / (fade_end - fade_start)
         alpha = max(0, min(1, alpha))
-        # print("alpha", alpha)
 
         if alpha < 1:
             # print("frame = backdrop + current@", alpha)
@@ -190,7 +186,6 @@ def generate_frames(settings, slides):
             # print("adding full image to backdrop")
             backdrop = overlay_image(backdrop.copy(), current_face_img, alpha)
             added_to_backdrop = True
-            # print("frame = backdrop")
             frame = backdrop
 
         yield frame
@@ -240,7 +235,7 @@ def single():
     proj = project.Project.load('project.json')
     settings = Settings()
     face_mesh = mp.solutions.face_mesh.FaceMesh(static_image_mode=False, max_num_faces=10)
-    slides = calculate_slide_data(proj, settings, face_mesh)
+    slides = calculate_slides(proj, settings, face_mesh)
 
     backdrop = np.zeros((settings.target_size[0], settings.target_size[1], 3))
 
@@ -286,7 +281,7 @@ def orient_image(img, src, dst, target_shape):
 
     # Note: cv2.BORDER_TRANSPARENT didn't work as expected,
     # so manually set cv2.BORDER_CONSTANT with a transparent borderValue
-    result = cv2.warpAffine(img_with_alpha, M, dsize, result, flags = cv2.INTER_LINEAR,
+    result = cv2.warpAffine(img_with_alpha, M, dsize, result, flags=cv2.INTER_LINEAR,
                             borderMode=cv2.BORDER_CONSTANT, borderValue=(0, 0, 0, 0))
 
     return result
