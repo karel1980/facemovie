@@ -12,11 +12,13 @@ RIGHT_EYE = 249
 
 
 class Settings:
-    def __init__(self, fade_in_millis=500, show_millis=2000, fade_out_millis=1000, target_size=(768, 1024)):
+    def __init__(self, fade_in_millis=500, show_millis=2000, fade_out_millis=1000, target_size=(768, 1024),
+                 fps = 25):
         self.fade_in_millis = fade_in_millis
         self.show_millis = show_millis
         self.fade_out_millis = fade_out_millis
         self.target_size = target_size
+        self.fps = fps
 
 
 def main():
@@ -28,25 +30,25 @@ def main():
     output_file = sys.argv[2]
 
     proj = project.Project.load(project_file)
-    settings = Settings()  # TODO: make settings part of the project?
+    settings = Settings(fps=60)  # TODO: make settings part of the project?
 
+    generate_facemovie(proj, settings, output_file)
+
+
+def generate_facemovie(project, settings, output_file):
     face_mesh = mp.solutions.face_mesh.FaceMesh(static_image_mode=False, max_num_faces=10)
-    slides = calculate_slide_data(proj, settings, face_mesh)
-
+    slides = calculate_slide_data(project, settings, face_mesh)
     next_print_time = time.time()
     total_frames = calculate_total_frames(settings, len(slides))
-
-    w,h = (settings.target_size[1], settings.target_size[0])
-    fps = 25
+    w, h = (settings.target_size[1], settings.target_size[0])
     fourcc = cv2.VideoWriter_fourcc('m', 'p', '4', 'v')
-    vid = cv2.VideoWriter(output_file, fourcc, fps, (w, h))
-
+    vid = cv2.VideoWriter(output_file, fourcc, settings.fps, (w, h))
     frame_num = 0
     for frame in generate_frames(settings, slides):
         frame_num += 1
         if time.time() > next_print_time:
             print("frame %s / %s" % (frame_num, total_frames))
-            next_print_time += 1000000
+            next_print_time += 1
 
         vid.write(frame)
     print("done")
@@ -159,7 +161,7 @@ def generate_frames(settings, slides):
     total_frames = calculate_total_frames(settings, len(slides))
 
     for frame_num in range(0, total_frames):
-        frame_time_millis = (frame_num * 25)
+        frame_time_millis = (frame_num * 1000 / settings.fps)
         slide_idx = min(int(frame_time_millis / slide_duration), len(slides) - 1)
 
         if slides[slide_idx] != current_slide:
@@ -196,7 +198,7 @@ def generate_frames(settings, slides):
 
 def calculate_total_frames(settings, num_slides):
     total_duration = calculate_total_duration(settings, num_slides)
-    total_frames = int(total_duration * 25 / 1000)
+    total_frames = int(total_duration * settings.fps / 1000)
     return total_frames
 
 
