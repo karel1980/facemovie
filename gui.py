@@ -1,6 +1,7 @@
 import glob
 import os
 import sys
+import yaml
 
 import cv2
 import face_recognition
@@ -31,8 +32,11 @@ class Window(QMainWindow):
         toolbar = self.create_toolbar()
         self.addToolBar(Qt.TopToolBarArea, toolbar)
 
-        # self.start_new_project()
-        self.load_project("project.json")
+        rc = self.load_rcfile()
+        if 'last_opened' in rc:
+            self.load_project(rc['last_opened'])
+        else:
+            self.start_new_project()
 
     def create_imagelist(self):
         image_list = QListView()
@@ -234,6 +238,7 @@ class Window(QMainWindow):
                         continue
                     proj.add_slide(slide[0], slide[1])
                 proj.save(file)
+                self.save_last_opened(self.current_project_path)
             else:
                 self.project.save(self.current_project_path)
 
@@ -256,9 +261,35 @@ class Window(QMainWindow):
         toolbar.addWidget(btn_add_images_from_dir)
         return toolbar
 
+    def save_last_opened(self, path):
+        rc = self.load_rcfile()
+        rc['last_opened'] = path
+        self.write_rcfile(rc)
+        
+    def load_rcfile(self):
+        expanded = os.path.expanduser("~/.facemovierc")
+        rc = None
+        if os.path.exists(expanded):
+            try:
+                print("expanded", expanded)
+                rc = yaml.load(open(expanded,"r"))
+            except:
+                print("could not read ~/.facemovierc")
+        return dict() if rc is None else rc
+
+    def write_rcfile(self, rc):
+        expanded = os.path.expanduser("~/.facemovierc")
+        try:
+          with open(expanded, "w") as rcfile:
+              yaml.dump(rc, rcfile)
+        except Exception as e:
+            print(e)
+            print("could not write ~/.facemovierc") 
+
     def load_project(self, project_file):
         self.start_new_project()
         proj = project.Project.load(project_file)
+        self.save_last_opened(project_file)
         for slide in proj.playlist:
             print("opened slide:", slide)
             self.add_slide(slide[0], slide[1])
