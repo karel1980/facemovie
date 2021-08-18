@@ -8,8 +8,8 @@ import numpy as np
 
 import project
 
-LEFT_EYE = 7
-RIGHT_EYE = 249
+LEFT_EYE = 33
+RIGHT_EYE = 263
 
 
 class Slide:
@@ -82,8 +82,8 @@ def calculate_slides(project, settings, face_mesh):
     """ returns a list of Slides """
 
     result = []
-    for item in project.playlist:
-        img = cv2.imread(item[0])
+    for slide in project.slides:
+        img = cv2.imread(slide.path)
         mesh_result = get_face_landmarks(face_mesh, img)
 
         if not mesh_result:
@@ -91,13 +91,13 @@ def calculate_slides(project, settings, face_mesh):
             continue
 
         if not mesh_result.multi_face_landmarks:
-            print("No faces found in %s. Skipped." % (item[0]))
+            print("No faces found in %s. Skipped." % (slide.path))
             continue
 
-        # TODO: if there are multiple faces, use the one closest to item[1]
+        # TODO: if there are multiple faces, use the one closest to slide.face_rect
         src = get_src_points(mesh_result.multi_face_landmarks[0], img.shape)
         dst = get_target_points(src, settings)
-        result.append(Slide(item[0], src, dst, (255, 255, 255, 255), 10))
+        result.append(Slide(slide.path, src, dst, (255, 255, 255, 255), 10))
 
     return result
 
@@ -139,21 +139,6 @@ def calculate_target_origin_location(left, right, target_left, target_right):
     return target_left + AC
 
 
-# def calculate_target_origin_location(left, right, target_left, target_right):
-#     # alpha = calculate_angle(left, right)
-#     alpha = 90
-#
-#     # a = left, B = right, c = (0,0)
-#     # A = target left, B = target right, C = target origin
-#
-#     AB = target_right - target_left
-#     rotMatrix = np.array([[np.cos(alpha), -np.sin(alpha)],
-#                           [np.sin(alpha), np.cos(alpha)]])
-#
-#     AC = AB.dot(rotMatrix) * np.linalg.norm(left) * np.linalg.norm(right - left) / np.linalg.norm(target_right - target_left) / np.linalg.norm(target_right - target_left)
-#     return left - AC
-
-
 def calculate_angle(a, b):
     # calculates angle between 2 vectors in radians
     left_unit = a / np.linalg.norm(a)
@@ -181,7 +166,7 @@ def generate_frames(settings, slides):
 
         if slides[slide_idx] != current_slide:
             current_slide = slides[slide_idx]
-            print('loading face', current_slide.img_path)
+            #print('loading face', current_slide.img_path)
             img = cv2.imread(current_slide.img_path)
             current_face_img = orient_image(img, current_slide, settings.target_size)
 
@@ -274,15 +259,5 @@ def add_alpha_channel(img):
     return cv2.merge((b_channel, g_channel, r_channel, alpha_channel))
 
 
-def bordertest():
-    img = cv2.imread('examples/me/photo001.jpg')
-    cv2.imshow('before', img)
-
-    img2 = cv2.copyMakeBorder(img, 10, 10, 10, 10, cv2.BORDER_CONSTANT, value=(255, 255, 255, 255))
-    cv2.imshow('after', img2)
-    cv2.waitKey(0)
-
-
 if __name__ == "__main__":
-    # bordertest()
     main()

@@ -1,19 +1,101 @@
 import glob
 import os
 import sys
-import yaml
+import threading
 
 import cv2
 import face_recognition
-from PyQt5.QtCore import Qt
-from PyQt5.QtGui import QStandardItemModel, QStandardItem, QImage, QPixmap
+import numpy as np
+import yaml
+from PyQt5 import QtGui
+from PyQt5.QtCore import Qt, QStringListModel, QModelIndex
+from PyQt5.QtGui import QStandardItemModel, QStandardItem, QImage, QPixmap, QIntValidator
 from PyQt5.QtWidgets import QApplication, QMainWindow, QLabel, QFileDialog, QToolBar, QPushButton, QListView, \
-    QHBoxLayout, QWidget, QVBoxLayout, QAbstractItemView
+    QHBoxLayout, QWidget, QVBoxLayout, QAbstractItemView, QDialog, QGridLayout, QLineEdit, QComboBox
+
+
+RESOLUTIONS = [("Full HD", 1920, 1080), ("HD", 1280, 720), ("SD", 640, 480)]
 
 import project
+from generate_facemovie import generate_facemovie, Settings
 
 
-class Window(QMainWindow):
+def face_to_rect(face):
+    return project.Rect(project.Point(face[1], face[0]), project.Point(face[3], face[2]))
+
+
+class OutputSettingsWindow(QDialog):
+    def __init__(self, parent=None, settings=None, generate_callback=None):
+        super().__init__(parent)
+        self.generate_callback = generate_callback
+
+        def create_int_edit(min_value, max_value, initial_value):
+            edit = QLineEdit()
+            validator = QIntValidator()
+            validator.setRange(min_value, max_value)
+            edit.setValidator(validator)
+            edit.setText(str(initial_value))
+            return edit
+
+        def create_file_input():
+            edit = QLineEdit()
+            edit.setText('out.mov')
+            return edit
+
+        edit_fade_in_millis = create_int_edit(0, 10000, settings.fade_in_millis)
+        edit_show_millis = create_int_edit(0, 10000, settings.show_millis)
+        combo_resolution = self.create_resolutions_combobox(RESOLUTIONS)
+        edit_fps = create_int_edit(12, 120, settings.fps)
+        edit_filename = create_file_input()
+        btn_select_output_file = QPushButton("Select file")
+
+        def generate_clicked():
+            if self.generate_callback is not None:
+                resolution = RESOLUTIONS[combo_resolution.currentIndex()]
+
+                settings = Settings(int(edit_fade_in_millis.text()), int(edit_show_millis.text()), 1000, (resolution[2], resolution[1]),
+                                    int(edit_fps.text()))
+                self.generate_callback(settings, edit_filename.text())
+            print("closing")
+            self.close()
+
+        def select_file_clicked():
+            file = QFileDialog.getSaveFileName(self, "Select output filename", initialFilter="*.mov")[0]
+            if file == "":
+                return
+            edit_filename.setText(file)
+
+        btn_select_output_file.clicked.connect(select_file_clicked)
+
+        btn_generate = QPushButton("Generate facemovie")
+        btn_generate.clicked.connect(generate_clicked)
+
+        layout = QGridLayout()
+        layout.addWidget(QLabel("fade_in_millis"), 0, 0)
+        layout.addWidget(edit_fade_in_millis, 0, 1)
+        layout.addWidget(QLabel("show_millis"), 1, 0)
+        layout.addWidget(edit_show_millis, 1, 1)
+        # layout.addWidget(QLabel("fade_out_millis"), 2, 0)
+        # layout.addWidget(create_int_edit(0, 10000), 2, 1)
+        layout.addWidget(QLabel("target_size"), 2, 0)
+        layout.addWidget(combo_resolution, 2, 1)
+        layout.addWidget(QLabel("fps"), 3, 0)
+        layout.addWidget(edit_fps, 3, 1)
+        layout.addWidget(QLabel("Output filename"), 4, 0)
+        layout.addWidget(edit_filename, 4, 1)
+        layout.addWidget(btn_select_output_file, 4, 2)
+        layout.addWidget(btn_generate, 5, 0)
+
+        self.setLayout(layout)
+
+    def create_resolutions_combobox(self, resolutions):
+        combo_resolution = QComboBox()
+        for i, r in enumerate(resolutions):
+            combo_resolution.addItem("%s (%s x %s)" % r)
+        return combo_resolution
+
+
+class MainWindow(QMainWindow):
     """Main Window."""
 
     def __init__(self, parent=None):
@@ -25,7 +107,7 @@ class Window(QMainWindow):
         self.current_image_faces = []
 
         self.setWindowTitle("Facemovie builder")
-        self.resize(640, 480)
+        self.resize(800, 480)
 
         self.create_main_widget()
 
@@ -33,7 +115,7 @@ class Window(QMainWindow):
         self.addToolBar(Qt.TopToolBarArea, toolbar)
 
         rc = self.load_rcfile()
-        if 'last_opened' in rc:
+        if rc.get('last_opened', None) is not None:
             self.load_project(rc['last_opened'])
         else:
             self.start_new_project()
@@ -62,16 +144,19 @@ class Window(QMainWindow):
             self.selected_image.setPixmap(QPixmap(320, 240))
             return
 
-        print("setting selected slide", slide)
-        path, loc = slide
-        img = cv2.imread(path)
-        self.current_image_faces = face_recognition.face_locations(img)
+        img = cv2.imread(slide.path)
+        if img is None:
+            print("IMAGE LOAD FAILED")
+            img = np.zeros((240, 320, 3)).astype(int)
+
+        self.current_image_faces = [face_to_rect(face) for face in face_recognition.face_locations(img)]
 
         for face in self.current_image_faces:
-            cv2.rectangle(img, (face[1], face[0]), (face[3], face[2]), (200, 200, 200))
+            cv2.rectangle(img, face.pt1.to_tuple(), face.pt2.to_tuple(), (200, 200, 200))
 
-        if loc is not None:
-            cv2.rectangle(img, (loc[1], loc[0]), (loc[3], loc[2]), (0, 255, 0))
+        if slide.face_rect is not None:
+            pt1, pt2 = slide.face_rect.pt1, slide.face_rect.pt2
+            cv2.rectangle(img, (pt1.x, pt1.y), (pt2.x, pt2.y), (0, 255, 0))
 
         pixmap = QPixmap(QImage(img, img.shape[1], img.shape[0], img.shape[1] * 3, QImage.Format_RGB888).rgbSwapped())
 
@@ -86,7 +171,7 @@ class Window(QMainWindow):
         if item is None:
             return
         slide = item.data(1)
-        self.set_selected_slide((slide[0], None))
+        self.set_selected_slide(project.Slide(slide.path, None))
 
     def get_selected_item(self):
         indexes = self.image_list.selectedIndexes()
@@ -133,9 +218,8 @@ class Window(QMainWindow):
             slide = item.data(1)
             if slide is None:
                 return  # data for selected image
-            path = slide[0]
-            location = (a.y() - 5, a.x() - 5, a.y() + 5, a.x() + 5)
-            self.set_selected_slide((path, location))
+            face_rect = project.Rect(project.Point(a.x() - 5, a.y() - 5), project.Point(a.x() + 5, a.y() + 5))
+            self.set_selected_slide(project.Slide(slide.path, face_rect))
 
         def select_face(offset):
             item = self.get_selected_item()
@@ -145,24 +229,20 @@ class Window(QMainWindow):
             if slide is None:
                 return  # no image selected
 
-            path, location = slide
-            if location is not None:  # TODO: change location to tuples in project.load
-                location = tuple(location)
-
             if len(self.current_image_faces) == 0:
                 return  # no faces in current image
 
-            if (location is None) or (location not in self.current_image_faces):
-                self.set_selected_slide((path, self.current_image_faces[0]))
+            if (slide.face_rect not in self.current_image_faces):
+                self.set_selected_slide(project.Slide(slide.path, self.current_image_faces[0]))
                 return
 
-            current_face_index = self.current_image_faces.index(location)
+            current_face_index = self.current_image_faces.index(slide.face_rect)
             if current_face_index < 0:
-                self.set_selected_slide((path, 0))
+                self.set_selected_slide(project.Slide(slide.path, self.current_image_faces[0]))
             else:
                 face = self.current_image_faces[
                     (current_face_index + offset + len(self.current_image_faces)) % len(self.current_image_faces)]
-                self.set_selected_slide((path, face))
+                self.set_selected_slide(project.Slide(slide.path, face))
 
         btn_prev = QPushButton("prev")
         btn_prev.clicked.connect(go_to_prev)
@@ -198,14 +278,18 @@ class Window(QMainWindow):
         self.setCentralWidget(main_widget)
 
     def add_image(self, path):
-        face_locations = face_recognition.face_locations(cv2.imread(path))
-        self.add_slide(path, None if len(face_locations) == 0 else face_locations[0])
+        faces = face_recognition.face_locations(cv2.imread(path))
+        if len(faces) == 0:
+            self.add_slide(project.Slide(path, None))
+        else:
+            face = faces[0]
+            self.add_slide(
+                project.Slide(path, project.Rect(project.Point(face[1], face[0]), project.Point(face[3], face[2]))))
 
-    def add_slide(self, path, location):
-        slide = path, location
-        item = QStandardItem(path)
+    def add_slide(self, slide):
+        item = QStandardItem(slide.path)
         item.setData(slide, 1)
-        item.setData(path)
+        item.setData(slide.path)
         self.image_list_model.appendRow(item)
 
     def create_toolbar(self):
@@ -225,22 +309,27 @@ class Window(QMainWindow):
             self.start_new_project()
             self.add_images_from_dir(file)
 
-        def save_project():
+        def do_save(file):
+            self.save_project(file)
+
+        def save_project_clicked():
             if self.current_project_path is None:
                 file = QFileDialog.getSaveFileName(self, "Save project")[0]
                 if file == "":
                     return
-                proj = project.Project()
-                for i in range(self.image_list_model.rowCount()):
-                    item = self.image_list_model.item(i)
-                    slide = item.data(1)
-                    if slide is None:
-                        continue
-                    proj.add_slide(slide[0], slide[1])
-                proj.save(file)
-                self.save_last_opened(self.current_project_path)
+                do_save(file)
             else:
-                self.project.save(self.current_project_path)
+                do_save(self.current_project_path)
+
+        def do_generate(settings, output_filename):
+            generator_thread = threading.Thread(target=generate_facemovie, args=(self.create_project_from_state(), settings, output_filename))
+            generator_thread.start()
+            # TODO: monitor progress, avoid starting 2 threads with the same output filename(?)
+
+        def open_generate_dialog():
+            dialog = OutputSettingsWindow(settings=Settings(), generate_callback=do_generate)
+            dialog.setAttribute(Qt.WA_DeleteOnClose)
+            dialog.exec_()
 
         toolbar = QToolBar()
         btn_new_project = QPushButton("New project")
@@ -250,29 +339,48 @@ class Window(QMainWindow):
         btn_load_project.clicked.connect(load_project)
 
         btn_save_project = QPushButton("Save project")
-        btn_save_project.clicked.connect(save_project)
+        btn_save_project.clicked.connect(save_project_clicked)
 
         btn_add_images_from_dir = QPushButton("Add images from dir")
         btn_add_images_from_dir.clicked.connect(select_image_directory)
+
+        ##TODO: add single image
+        btn_generate_movie = QPushButton("Generate facemovie")
+        btn_generate_movie.clicked.connect(open_generate_dialog)
 
         toolbar.addWidget(btn_new_project)
         toolbar.addWidget(btn_load_project)
         toolbar.addWidget(btn_save_project)
         toolbar.addWidget(btn_add_images_from_dir)
+        toolbar.addWidget(btn_generate_movie)
         return toolbar
+
+    def save_project(self, file):
+        proj = self.create_project_from_state()
+        proj.save(file)
+        self.save_last_opened(file)
+
+    def create_project_from_state(self):
+        proj = project.Project()
+        for i in range(self.image_list_model.rowCount()):
+            item = self.image_list_model.item(i)
+            slide = item.data(1)
+            if slide is None:
+                continue
+            proj.add_slide(project.Slide(slide.path, slide.face_rect))
+        return proj
 
     def save_last_opened(self, path):
         rc = self.load_rcfile()
         rc['last_opened'] = path
         self.write_rcfile(rc)
-        
+
     def load_rcfile(self):
         expanded = os.path.expanduser("~/.facemovierc")
         rc = None
         if os.path.exists(expanded):
             try:
-                print("expanded", expanded)
-                rc = yaml.load(open(expanded,"r"))
+                rc = yaml.load(open(expanded, "r"), Loader=yaml.SafeLoader)
             except:
                 print("could not read ~/.facemovierc")
         return dict() if rc is None else rc
@@ -280,19 +388,19 @@ class Window(QMainWindow):
     def write_rcfile(self, rc):
         expanded = os.path.expanduser("~/.facemovierc")
         try:
-          with open(expanded, "w") as rcfile:
-              yaml.dump(rc, rcfile)
+            with open(expanded, "w") as rcfile:
+                yaml.dump(rc, rcfile)
         except Exception as e:
             print(e)
-            print("could not write ~/.facemovierc") 
+            print("could not write ~/.facemovierc")
 
     def load_project(self, project_file):
         self.start_new_project()
-        proj = project.Project.load(project_file)
+        self.project = project.Project.load(project_file)
+        self.current_project_path = project_file
         self.save_last_opened(project_file)
-        for slide in proj.playlist:
-            print("opened slide:", slide)
-            self.add_slide(slide[0], slide[1])
+        for slide in self.project.slides:
+            self.add_slide(slide)
 
     def add_images_from_dir(self, dirname):
         for path in glob.glob(dirname + "/**", recursive=True):
@@ -301,6 +409,7 @@ class Window(QMainWindow):
             self.add_image(path)
 
     def start_new_project(self):
+        self.save_last_opened(None)
         self.image_list_model.clear()
         self.current_image_faces = []
         self.set_selected_slide(None)
@@ -308,7 +417,7 @@ class Window(QMainWindow):
 
 def main():
     app = QApplication(sys.argv)
-    win = Window()
+    win = MainWindow()
     win.show()
     app.exec()
 
