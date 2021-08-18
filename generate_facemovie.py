@@ -74,7 +74,7 @@ def generate_facemovie(project, settings, output_file):
             next_print_time += 1
 
         vid.write(frame)
-    print("done")
+    print("finished writing", output_file)
     vid.release()
 
 
