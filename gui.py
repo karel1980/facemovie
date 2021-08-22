@@ -46,7 +46,7 @@ class OutputSettingsWindow(QDialog):
         combo_resolution = self.create_resolutions_combobox(RESOLUTIONS)
         edit_fps = create_int_edit(12, 120, settings.fps)
         edit_filename = create_file_input()
-        edit_filename.setText()
+        edit_filename.setText(settings.output_path)
         btn_select_output_file = QPushButton("Select file")
 
         def generate_clicked():
