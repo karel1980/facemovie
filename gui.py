@@ -143,13 +143,13 @@ class MainWindow(QMainWindow):
 
     def set_selected_slide(self, slide):
         if slide is None:
-            self.selected_image.setPixmap(QPixmap(320, 240))
+            img = create_placeholder_image((240, 320))
+            self.selected_image.setPixmap(image_to_pixmap(img))
             return
 
         img = cv2.imread(slide.path)
         if img is None:
-            print("IMAGE LOAD FAILED")
-            img = np.zeros((240, 320, 3)).astype(int)
+            img = create_placeholder_image((240, 320))
 
         self.current_image_faces = [face_to_rect(face) for face in face_recognition.face_locations(img)]
 
@@ -160,7 +160,7 @@ class MainWindow(QMainWindow):
             pt1, pt2 = slide.face_rect.pt1, slide.face_rect.pt2
             cv2.rectangle(img, (pt1.x, pt1.y), (pt2.x, pt2.y), (0, 255, 0))
 
-        pixmap = QPixmap(QImage(img, img.shape[1], img.shape[0], img.shape[1] * 3, QImage.Format_RGB888).rgbSwapped())
+        pixmap = image_to_pixmap(img)
 
         item = self.get_selected_item()
         if item is not None:
@@ -173,7 +173,7 @@ class MainWindow(QMainWindow):
         if item is None:
             return
         slide = item.data(1)
-        self.set_selected_slide(project.Slide(slide.path, None))
+        self.set_selected_slide(project.InputSlide(slide.path, None))
 
     def get_selected_item(self):
         indexes = self.image_list.selectedIndexes()
@@ -221,7 +221,7 @@ class MainWindow(QMainWindow):
             if slide is None:
                 return  # data for selected image
             face_rect = project.Rect(project.Point(a.x() - 5, a.y() - 5), project.Point(a.x() + 5, a.y() + 5))
-            self.set_selected_slide(project.Slide(slide.path, face_rect))
+            self.set_selected_slide(project.InputSlide(slide.path, face_rect))
 
         def select_face(offset):
             item = self.get_selected_item()
@@ -235,16 +235,16 @@ class MainWindow(QMainWindow):
                 return  # no faces in current image
 
             if (slide.face_rect is None or slide.face_rect not in self.current_image_faces):
-                self.set_selected_slide(project.Slide(slide.path, self.current_image_faces[0]))
+                self.set_selected_slide(project.InputSlide(slide.path, self.current_image_faces[0]))
                 return
 
             current_face_index = self.current_image_faces.index(slide.face_rect)
             if current_face_index < 0:
-                self.set_selected_slide(project.Slide(slide.path, self.current_image_faces[0]))
+                self.set_selected_slide(project.InputSlide(slide.path, self.current_image_faces[0]))
             else:
                 face = self.current_image_faces[
                     (current_face_index + offset + len(self.current_image_faces)) % len(self.current_image_faces)]
-                self.set_selected_slide(project.Slide(slide.path, face))
+                self.set_selected_slide(project.InputSlide(slide.path, face))
 
         btn_prev = QPushButton("prev")
         btn_prev.clicked.connect(go_to_prev)
@@ -280,13 +280,17 @@ class MainWindow(QMainWindow):
         self.setCentralWidget(main_widget)
 
     def add_image(self, path):
-        faces = face_recognition.face_locations(cv2.imread(path))
+        img = cv2.imread(path)
+        if img is None:
+            return
+        faces = face_recognition.face_locations(img)
         if len(faces) == 0:
-            self.add_slide(project.Slide(path, None))
+            self.add_slide(project.InputSlide(path, None))
         else:
             face = faces[0]
             self.add_slide(
-                project.Slide(path, project.Rect(project.Point(face[1], face[0]), project.Point(face[3], face[2]))))
+                project.InputSlide(path,
+                                   project.Rect(project.Point(face[1], face[0]), project.Point(face[3], face[2]))))
 
     def add_slide(self, slide):
         item = QStandardItem(slide.path)
@@ -371,7 +375,7 @@ class MainWindow(QMainWindow):
             slide = item.data(1)
             if slide is None:
                 continue
-            proj.add_slide(project.Slide(slide.path, slide.face_rect))
+            proj.add_slide(project.InputSlide(slide.path, slide.face_rect))
         proj.settings = self.settings
         return proj
 
@@ -422,6 +426,18 @@ class MainWindow(QMainWindow):
         self.image_list_model.clear()
         self.current_image_faces = []
         self.set_selected_slide(None)
+
+
+def image_to_pixmap(img):
+    return QPixmap(QImage(img, img.shape[1], img.shape[0], img.shape[1] * 3, QImage.Format_RGB888).rgbSwapped())
+
+
+def create_placeholder_image(shape):
+    h, w = shape
+    img = np.zeros([h, w, 3], dtype=np.uint8)
+    img[:] = 128
+    cv2.rectangle(img, (10, 10), (310, 230), (255, 255, 255), 5)
+    return img
 
 
 def main():

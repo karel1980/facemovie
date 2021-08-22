@@ -33,6 +33,11 @@ class Slide:
         return np.linalg.norm(self.output_eyes[1] - self.output_eyes[0]) / np.linalg.norm(
             self.input_eyes[1] - self.input_eyes[0])
 
+    def __str__(self):
+        return "Slide(img_path=%s, input_eyes=%s, output_eyes=%s, border_color=%s, border_thickness=%s)" % (
+            self.img_path, self.input_eyes, self.output_eyes, self.border_color, self.border_thickness
+        )
+
 
 def main():
     if len(sys.argv) != 3:
@@ -73,8 +78,13 @@ def calculate_slides(project, settings, face_mesh):
     """ returns a list of Slides """
 
     result = []
-    for slide in project.slides:
-        img = cv2.imread(slide.path)
+    for input_slide in project.slides:
+        if input_slide.face_rect is None:
+            continue
+        img = cv2.imread(input_slide.path)
+        if img is None:
+            print("Couldn't load ", input_slide.path)
+            continue
         mesh_result = get_face_landmarks(face_mesh, img)
 
         if not mesh_result:
@@ -82,15 +92,45 @@ def calculate_slides(project, settings, face_mesh):
             continue
 
         if not mesh_result.multi_face_landmarks:
-            print("No faces found in %s. Skipped." % (slide.path))
+            print("No faces found in %s. Skipped." % (input_slide.path))
             continue
 
         # TODO: if there are multiple faces, use the one closest to slide.face_rect
-        src = get_src_points(mesh_result.multi_face_landmarks[0], img.shape)
+        src = get_src_points(find_nearest_face(img.shape, input_slide, mesh_result), img.shape)
         dst = get_target_points(src, settings)
-        result.append(Slide(slide.path, src, dst, (255, 255, 255, 255), 10))
+        result.append(Slide(input_slide.path, src, dst, (255, 255, 255, 255), 10))
 
     return result
+
+
+def find_nearest_face(input_shape, input_slide, mesh_result):
+    faces = mesh_result.multi_face_landmarks
+
+    nearest_face = faces[0]
+    nearest_dist = find_distance_from_input_slide(input_shape, input_slide, nearest_face)
+
+    for face in faces[1:]:
+        dist = find_distance_from_input_slide(input_shape, input_slide, face)
+        if dist < nearest_dist:
+            nearest_dist = dist
+            nearest_face = face
+
+    return nearest_face
+
+
+def find_distance_from_input_slide(input_shape, input_slide, face):
+    w, h = input_shape[1], input_shape[0]
+    input_slide_center = np.array([(input_slide.face_rect.pt1.x + input_slide.face_rect.pt2.x) / 2,
+                                   (input_slide.face_rect.pt1.y + input_slide.face_rect.pt2.y) / 2])
+
+    top = min([lm.y for lm in face.landmark])
+    bottom = max([lm.y for lm in face.landmark])
+    left = min([lm.x for lm in face.landmark])
+    right = min([lm.x for lm in face.landmark])
+
+    face_center = np.array((w * (right + left) / 2, h * (top + bottom) / 2))
+
+    return np.linalg.norm(face_center - input_slide_center)
 
 
 def get_transformation_points(img, face, target_shape):
@@ -218,13 +258,14 @@ def overlay_image(base, overlay, alpha=1.0):
 
 def orient_image(img, slide, target_shape):
     scale = slide.get_scale()
-    border_thickness = int(10 / scale) # todo: 20 = border thickness in output; make this a setting
+    border_thickness = int(10 / scale)  # todo: 20 = border thickness in output; make this a setting
     img = cv2.copyMakeBorder(img, border_thickness, border_thickness, border_thickness, border_thickness,
-                             cv2.BORDER_CONSTANT, value=(255,255,255,255))
+                             cv2.BORDER_CONSTANT, value=(255, 255, 255, 255))
 
     input_eye = slide.input_eyes[0] + border_thickness
     img_with_alpha = add_alpha_channel(img)
-    affine_transformation_matrix = cv2.getRotationMatrix2D(input_eye, - slide.get_input_eye_angle() * 180 / math.pi, scale)
+    affine_transformation_matrix = cv2.getRotationMatrix2D(input_eye, - slide.get_input_eye_angle() * 180 / math.pi,
+                                                           scale)
     affine_transformation_matrix[:, 2] += slide.output_eyes[0] - input_eye
 
     dsize = (target_shape[1], target_shape[0])

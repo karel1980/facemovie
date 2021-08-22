@@ -1,10 +1,13 @@
 import json
 
 
-class Slide:
+class InputSlide:
     def __init__(self, path, face_rect):
         self.path = path
         self.face_rect = face_rect
+
+    def __str__(self):
+        return "InputSlide(%s, %s)" % (self.path, self.face_rect)
 
 
 class Rect:
@@ -104,7 +107,7 @@ def load_settings(data=None):
 
 def create_slide(path, face_coordinates):
     rect = create_rect(face_coordinates)
-    return Slide(path, rect)
+    return InputSlide(path, rect)
 
 
 def create_rect(coordinates):
