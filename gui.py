@@ -10,7 +10,7 @@ import yaml
 from PyQt5.QtCore import Qt
 from PyQt5.QtGui import QStandardItemModel, QStandardItem, QImage, QPixmap, QIntValidator
 from PyQt5.QtWidgets import QApplication, QMainWindow, QLabel, QFileDialog, QToolBar, QPushButton, QListView, \
-    QHBoxLayout, QWidget, QVBoxLayout, QAbstractItemView, QDialog, QGridLayout, QLineEdit, QComboBox
+    QHBoxLayout, QWidget, QVBoxLayout, QAbstractItemView, QDialog, QGridLayout, QLineEdit, QComboBox, QAction
 
 RESOLUTIONS = [("Full HD", 1920, 1080), ("HD", 1280, 720), ("SD", 640, 480)]
 
@@ -39,7 +39,6 @@ class OutputSettingsWindow(QDialog):
 
         def create_file_input():
             edit = QLineEdit()
-            edit.setText('out.mov')
             return edit
 
         edit_fade_in_millis = create_int_edit(0, 10000, settings.fade_in_millis)
@@ -47,6 +46,7 @@ class OutputSettingsWindow(QDialog):
         combo_resolution = self.create_resolutions_combobox(RESOLUTIONS)
         edit_fps = create_int_edit(12, 120, settings.fps)
         edit_filename = create_file_input()
+        edit_filename.setText()
         btn_select_output_file = QPushButton("Select file")
 
         def generate_clicked():
@@ -102,6 +102,7 @@ class MainWindow(QMainWindow):
     def __init__(self, parent=None):
         """Initializer."""
         super().__init__(parent)
+        self._create_actions()
         self.settings = Settings()
         self.create_imagelist()
 
@@ -122,6 +123,37 @@ class MainWindow(QMainWindow):
         else:
             self.start_new_project()
 
+    def _create_actions(self):
+        self.action_new = QAction("New", self)
+        self.action_new.triggered.connect(self.handle_action_new)
+
+        self.action_open = QAction("Open", self)
+        self.action_open.triggered.connect(self.handle_action_open)
+
+        self.action_save = QAction("Save", self)
+        self.action_save.triggered.connect(self.handle_action_save_project)
+
+        self.action_add_image_directory = QAction("Add images from dir", self)
+        self.action_add_image_directory.triggered.connect(self.handle_action_add_image_directory)
+
+        self.action_generate_facemovie = QAction("Generate facemovie", self)
+        self.action_generate_facemovie.triggered.connect(self.handle_action_generate_facemovie)
+
+        self.action_clear_face = QAction("clear", self)
+        self.action_clear_face.triggered.connect(self.handle_action_clear)
+
+        self.action_next_image = QAction("next_image", self)
+        self.action_next_image.triggered.connect(self.handle_action_next_image)
+
+        self.action_previous_image = QAction("previous_image", self)
+        self.action_previous_image.triggered.connect(self.handle_action_previous_image)
+
+        self.action_previous_face = QAction("previous_face", self)
+        self.action_previous_face.triggered.connect(self.handle_action_previous_face)
+
+        self.action_next_face = QAction("next_face", self)
+        self.action_next_face.triggered.connect(self.handle_action_next_face)
+
     def create_imagelist(self):
         image_list = QListView()
         image_list.setEditTriggers(QAbstractItemView.NoEditTriggers)
@@ -135,7 +167,7 @@ class MainWindow(QMainWindow):
 
             item = self.get_selected_item()
             if item is not None:
-                self.set_selected_slide(item.data(1))
+                self.set_selected_slide(item.data(5))
 
         image_list.setMaximumWidth(200)
         image_list.selectionModel().selectionChanged.connect(on_image_selected)
@@ -164,7 +196,7 @@ class MainWindow(QMainWindow):
 
         item = self.get_selected_item()
         if item is not None:
-            item.setData(slide, 1)
+            item.setData(slide, 5)
 
         self.selected_image.setPixmap(pixmap)
 
@@ -172,7 +204,7 @@ class MainWindow(QMainWindow):
         item = self.get_selected_item()
         if item is None:
             return
-        slide = item.data(1)
+        slide = item.data(5)
         self.set_selected_slide(project.InputSlide(slide.path, None))
 
     def get_selected_item(self):
@@ -180,6 +212,55 @@ class MainWindow(QMainWindow):
         if len(indexes) == 0:
             return None
         return self.image_list_model.itemFromIndex(indexes[0])
+
+    def handle_action_clear(self):
+        self.clear_selected_face()
+
+    def handle_action_next_image(self):
+        selected = self.image_list.selectedIndexes()
+        if len(selected) == 0:
+            self.image_list.setCurrentIndex(self.image_list_model.index(0, 0))
+        else:
+            row, col = (selected[0].row() + 1) % self.image_list_model.rowCount(), selected[0].column()
+            self.image_list.setCurrentIndex(self.image_list_model.index(row, col))
+
+    def handle_action_previous_image(self):
+        selected = self.image_list.selectedIndexes()
+        list_size = self.image_list_model.rowCount()
+        if len(selected) == 0:
+            self.image_list.setCurrentIndex(self.image_list_model.index(list_size - 1, 0))
+        else:
+            row, col = (selected[0].row() + list_size - 1) % self.image_list_model.rowCount(), selected[0].column()
+            self.image_list.setCurrentIndex(self.image_list_model.index(row, col))
+
+    def handle_action_previous_face(self):
+        self.select_face(-1)
+
+    def handle_action_next_face(self):
+        self.select_face(1)
+
+    def select_face(self,offset):
+        item = self.get_selected_item()
+        if item is None:
+            return  # no image selected
+        slide = item.data(5)
+        if slide is None:
+            return  # no image selected
+
+        if len(self.current_image_faces) == 0:
+            return  # no faces in current image
+
+        if (slide.face_rect is None or slide.face_rect not in self.current_image_faces):
+            self.set_selected_slide(project.InputSlide(slide.path, self.current_image_faces[0]))
+            return
+
+        current_face_index = self.current_image_faces.index(slide.face_rect)
+        if current_face_index < 0:
+            self.set_selected_slide(project.InputSlide(slide.path, self.current_image_faces[0]))
+        else:
+            face = self.current_image_faces[
+                (current_face_index + offset + len(self.current_image_faces)) % len(self.current_image_faces)]
+            self.set_selected_slide(project.InputSlide(slide.path, face))
 
     def create_main_widget(self):
         right_panel = QWidget()
@@ -217,7 +298,7 @@ class MainWindow(QMainWindow):
             item = self.get_selected_item()
             if item is None:
                 return  # no image selected
-            slide = item.data(1)
+            slide = item.data(5)
             if slide is None:
                 return  # data for selected image
             face_rect = project.Rect(project.Point(a.x() - 5, a.y() - 5), project.Point(a.x() + 5, a.y() + 5))
@@ -227,7 +308,7 @@ class MainWindow(QMainWindow):
             item = self.get_selected_item()
             if item is None:
                 return  # no image selected
-            slide = item.data(1)
+            slide = item.data(5)
             if slide is None:
                 return  # no image selected
 
@@ -258,11 +339,11 @@ class MainWindow(QMainWindow):
         btn_next_face = QPushButton("next face")
         btn_next_face.clicked.connect(select_next_face)
 
-        slide_tool_bar.addWidget(btn_prev)
-        slide_tool_bar.addWidget(btn_next)
-        slide_tool_bar.addWidget(btn_clear)
-        slide_tool_bar.addWidget(btn_prev_face)
-        slide_tool_bar.addWidget(btn_next_face)
+        slide_tool_bar.addAction(self.action_previous_image)
+        slide_tool_bar.addAction(self.action_next_image)
+        slide_tool_bar.addAction(self.action_clear_face)
+        slide_tool_bar.addAction(self.action_previous_face)
+        slide_tool_bar.addAction(self.action_next_face)
 
         right_panel_layout.addWidget(slide_tool_bar)
         self.selected_image = QLabel("selected image")
@@ -294,73 +375,52 @@ class MainWindow(QMainWindow):
 
     def add_slide(self, slide):
         item = QStandardItem(slide.path)
-        item.setData(slide, 1)
-        item.setData(slide.path)
+        item.setData(slide, 5)
         self.image_list_model.appendRow(item)
 
-    def create_toolbar(self):
-        def start_new_project_clicked():
-            self.start_new_project()
+    def handle_action_open(self):
+        file = QFileDialog.getOpenFileName(self, "Select project", filter="*.json")
+        if file == ('', ''):
+            return
+        self.load_project(file[0])
 
-        def load_project_clicked():
-            file = QFileDialog.getOpenFileName(self, "Select project", filter="*.json")
-            if file == ('', ''):
+    def handle_action_new(self):
+        self.start_new_project()
+
+    def handle_action_add_image_directory(self):
+        file = str(QFileDialog.getExistingDirectory(self, "Select directory"))
+        if len(file) == 0:
+            return
+        self.add_images_from_dir(file)
+
+    def handle_action_save_project(self):
+        if self.current_project_path is None:
+            file = QFileDialog.getSaveFileName(self, "Save project")[0]
+            if file == "":
                 return
-            self.load_project(file[0])
-
-        def select_image_directory_clicked():
-            file = str(QFileDialog.getExistingDirectory(self, "Select directory"))
-            if len(file) == 0:
-                return
-            self.start_new_project()
-            self.add_images_from_dir(file)
-
-        def do_save(file):
             self.save_project(file)
+        else:
+            self.save_project(self.current_project_path)
 
-        def save_project_clicked():
-            if self.current_project_path is None:
-                file = QFileDialog.getSaveFileName(self, "Save project")[0]
-                if file == "":
-                    return
-                do_save(file)
-            else:
-                do_save(self.current_project_path)
-
-        def do_generate(settings):
+    def handle_action_generate_facemovie(self):
+        def on_generate_dialog_confirmed(settings):
             generator_thread = threading.Thread(target=generate_facemovie,
                                                 args=(self.create_project_from_state(), settings))
             self.settings = settings
             generator_thread.start()
             # TODO: monitor progress, use a queue
 
-        def open_generate_dialog_clicked():
-            dialog = OutputSettingsWindow(settings=self.settings, generate_callback=do_generate)
-            dialog.setAttribute(Qt.WA_DeleteOnClose)
-            dialog.exec_()
+        dialog = OutputSettingsWindow(settings=self.settings, generate_callback=on_generate_dialog_confirmed)
+        dialog.setAttribute(Qt.WA_DeleteOnClose)
+        dialog.exec_()
 
-        toolbar = QToolBar()
-        btn_new_project = QPushButton("New project")
-        btn_new_project.clicked.connect(start_new_project_clicked)
-
-        btn_load_project = QPushButton("Load project")
-        btn_load_project.clicked.connect(load_project_clicked)
-
-        btn_save_project = QPushButton("Save project")
-        btn_save_project.clicked.connect(save_project_clicked)
-
-        btn_add_images_from_dir = QPushButton("Add images from dir")
-        btn_add_images_from_dir.clicked.connect(select_image_directory_clicked)
-
-        ##TODO: add single image
-        btn_generate_movie = QPushButton("Generate facemovie")
-        btn_generate_movie.clicked.connect(open_generate_dialog_clicked)
-
-        toolbar.addWidget(btn_new_project)
-        toolbar.addWidget(btn_load_project)
-        toolbar.addWidget(btn_save_project)
-        toolbar.addWidget(btn_add_images_from_dir)
-        toolbar.addWidget(btn_generate_movie)
+    def create_toolbar(self):
+        toolbar = QToolBar(self)
+        toolbar.addAction(self.action_new)
+        toolbar.addAction(self.action_open)
+        toolbar.addAction(self.action_save)
+        toolbar.addAction(self.action_add_image_directory)
+        toolbar.addAction(self.action_generate_facemovie)
         return toolbar
 
     def save_project(self, file):
@@ -372,7 +432,7 @@ class MainWindow(QMainWindow):
         proj = project.Project()
         for i in range(self.image_list_model.rowCount()):
             item = self.image_list_model.item(i)
-            slide = item.data(1)
+            slide = item.data(5)
             if slide is None:
                 continue
             proj.add_slide(project.InputSlide(slide.path, slide.face_rect))
