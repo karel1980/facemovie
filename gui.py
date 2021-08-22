@@ -239,7 +239,7 @@ class MainWindow(QMainWindow):
     def handle_action_next_face(self):
         self.select_face(1)
 
-    def select_face(self,offset):
+    def select_face(self, offset):
         item = self.get_selected_item()
         if item is None:
             return  # no image selected
@@ -373,8 +373,19 @@ class MainWindow(QMainWindow):
                 project.InputSlide(path,
                                    project.Rect(project.Point(face[1], face[0]), project.Point(face[3], face[2]))))
 
+    def calculate_relative_image_path(self, image_path, project_path):
+        project_dir = os.path.dirname(project_path)
+        if project_dir is None:
+            # TODO: given no project path, fall back to cwd
+            return image_path
+        elif image_path.startswith(project_dir + '/'): #TODO: deal with path separator differences across OS
+            return image_path[len(project_dir) + 1:]
+        return image_path
+
     def add_slide(self, slide):
-        item = QStandardItem(slide.path)
+        shortened_path = self.calculate_relative_image_path(slide.path, self.current_project_path)
+        item = QStandardItem(shortened_path)
+
         item.setData(slide, 5)
         self.image_list_model.appendRow(item)
 
