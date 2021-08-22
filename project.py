@@ -38,13 +38,17 @@ class Point:
 
 
 class Project:
-    def __init__(self, playlist=None, slides=None):
+    def __init__(self, playlist=None, slides=None, settings=None):
         if playlist is None:
             playlist = []
         if slides is None:
             slides = []
+        if settings is None:
+            settings = Settings()
+
         self.playlist = playlist
         self.slides = slides
+        self.settings = settings
 
     def add_slide(self, slide):
         self.playlist.append((slide.path, None if slide.face_rect is None else slide.face_rect.to_coordinates()))
@@ -53,6 +57,14 @@ class Project:
     def save(self, path):
         data = dict()
         data["playlist"] = self.playlist
+        data["settings"] = dict(
+            fade_in_millis=self.settings.fade_in_millis,
+            fade_out_millis=self.settings.fade_out_millis,
+            target_size=self.settings.target_size,
+            fps=self.settings.fps,
+            output_path=self.settings.output_path,
+            show_millis=self.settings.show_millis,
+        )
         if path is None:
             print(json.dumps(data))
         else:
@@ -64,7 +76,30 @@ class Project:
         with open(path) as infile:
             data = json.load(infile)
             playlist = data["playlist"]
-            return Project(playlist=playlist, slides=[create_slide(item[0], item[1]) for item in playlist])
+            settings = load_settings(data.get("settings", None))
+            return Project(playlist=playlist, slides=[create_slide(item[0], item[1]) for item in playlist],
+                           settings=settings)
+
+
+def load_settings(data=None):
+    if data is None:
+        return Settings()
+
+    fade_in_millis = data.get("fade_in_millis", 500)
+    show_millis = data.get("show_millis", 2000)
+    fade_out_millis = data.get("fade_out_millis", 1000)
+    target_size = tuple(data.get("target_size", [768, 1024]))
+    fps = data.get("fps", 30)
+    output_path = data.get("output_path", "out.mov")
+
+    return Settings(
+        fade_in_millis=fade_in_millis,
+        show_millis=show_millis,
+        fade_out_millis=fade_out_millis,
+        target_size=target_size,
+        fps=fps,
+        output_path=output_path
+    )
 
 
 def create_slide(path, face_coordinates):
@@ -78,3 +113,14 @@ def create_rect(coordinates):
     point1 = Point(coordinates[0], coordinates[1])
     point2 = Point(coordinates[2], coordinates[3])
     return Rect(point1, point2)
+
+
+class Settings:
+    def __init__(self, fade_in_millis=500, show_millis=2000, fade_out_millis=1000, target_size=(768, 1024),
+                 fps=25, output_path="out.mov"):
+        self.fade_in_millis = fade_in_millis
+        self.show_millis = show_millis
+        self.fade_out_millis = fade_out_millis
+        self.target_size = target_size
+        self.fps = fps
+        self.output_path = output_path

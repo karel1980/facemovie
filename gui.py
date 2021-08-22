@@ -7,17 +7,16 @@ import cv2
 import face_recognition
 import numpy as np
 import yaml
-from PyQt5 import QtGui
-from PyQt5.QtCore import Qt, QStringListModel, QModelIndex
+from PyQt5.QtCore import Qt
 from PyQt5.QtGui import QStandardItemModel, QStandardItem, QImage, QPixmap, QIntValidator
 from PyQt5.QtWidgets import QApplication, QMainWindow, QLabel, QFileDialog, QToolBar, QPushButton, QListView, \
     QHBoxLayout, QWidget, QVBoxLayout, QAbstractItemView, QDialog, QGridLayout, QLineEdit, QComboBox
 
-
 RESOLUTIONS = [("Full HD", 1920, 1080), ("HD", 1280, 720), ("SD", 640, 480)]
 
 import project
-from generate_facemovie import generate_facemovie, Settings
+from generate_facemovie import generate_facemovie
+from project import Settings
 
 
 def face_to_rect(face):
@@ -27,6 +26,7 @@ def face_to_rect(face):
 class OutputSettingsWindow(QDialog):
     def __init__(self, parent=None, settings=None, generate_callback=None):
         super().__init__(parent)
+        print("created output settings dialog with settings", settings.fps)
         self.generate_callback = generate_callback
 
         def create_int_edit(min_value, max_value, initial_value):
@@ -53,10 +53,11 @@ class OutputSettingsWindow(QDialog):
             if self.generate_callback is not None:
                 resolution = RESOLUTIONS[combo_resolution.currentIndex()]
 
-                settings = Settings(int(edit_fade_in_millis.text()), int(edit_show_millis.text()), 1000, (resolution[2], resolution[1]),
-                                    int(edit_fps.text()))
-                self.generate_callback(settings, edit_filename.text())
-            print("closing")
+                settings = Settings(int(edit_fade_in_millis.text()), int(edit_show_millis.text()), 1000,
+                                    (resolution[2], resolution[1]),
+                                    int(edit_fps.text()),
+                                    edit_filename.text())
+                self.generate_callback(settings)
             self.close()
 
         def select_file_clicked():
@@ -101,6 +102,7 @@ class MainWindow(QMainWindow):
     def __init__(self, parent=None):
         """Initializer."""
         super().__init__(parent)
+        self.settings = Settings()
         self.create_imagelist()
 
         self.current_project_path = None
@@ -232,7 +234,7 @@ class MainWindow(QMainWindow):
             if len(self.current_image_faces) == 0:
                 return  # no faces in current image
 
-            if (slide.face_rect not in self.current_image_faces):
+            if (slide.face_rect is None or slide.face_rect not in self.current_image_faces):
                 self.set_selected_slide(project.Slide(slide.path, self.current_image_faces[0]))
                 return
 
@@ -293,16 +295,16 @@ class MainWindow(QMainWindow):
         self.image_list_model.appendRow(item)
 
     def create_toolbar(self):
-        def start_new_project():
+        def start_new_project_clicked():
             self.start_new_project()
 
-        def load_project():
+        def load_project_clicked():
             file = QFileDialog.getOpenFileName(self, "Select project", filter="*.json")
             if file == ('', ''):
                 return
             self.load_project(file[0])
 
-        def select_image_directory():
+        def select_image_directory_clicked():
             file = str(QFileDialog.getExistingDirectory(self, "Select directory"))
             if len(file) == 0:
                 return
@@ -321,32 +323,34 @@ class MainWindow(QMainWindow):
             else:
                 do_save(self.current_project_path)
 
-        def do_generate(settings, output_filename):
-            generator_thread = threading.Thread(target=generate_facemovie, args=(self.create_project_from_state(), settings, output_filename))
+        def do_generate(settings):
+            generator_thread = threading.Thread(target=generate_facemovie,
+                                                args=(self.create_project_from_state(), settings))
+            self.settings = settings
             generator_thread.start()
-            # TODO: monitor progress, avoid starting 2 threads with the same output filename(?)
+            # TODO: monitor progress, use a queue
 
-        def open_generate_dialog():
-            dialog = OutputSettingsWindow(settings=Settings(), generate_callback=do_generate)
+        def open_generate_dialog_clicked():
+            dialog = OutputSettingsWindow(settings=self.settings, generate_callback=do_generate)
             dialog.setAttribute(Qt.WA_DeleteOnClose)
             dialog.exec_()
 
         toolbar = QToolBar()
         btn_new_project = QPushButton("New project")
-        btn_new_project.clicked.connect(start_new_project)
+        btn_new_project.clicked.connect(start_new_project_clicked)
 
         btn_load_project = QPushButton("Load project")
-        btn_load_project.clicked.connect(load_project)
+        btn_load_project.clicked.connect(load_project_clicked)
 
         btn_save_project = QPushButton("Save project")
         btn_save_project.clicked.connect(save_project_clicked)
 
         btn_add_images_from_dir = QPushButton("Add images from dir")
-        btn_add_images_from_dir.clicked.connect(select_image_directory)
+        btn_add_images_from_dir.clicked.connect(select_image_directory_clicked)
 
         ##TODO: add single image
         btn_generate_movie = QPushButton("Generate facemovie")
-        btn_generate_movie.clicked.connect(open_generate_dialog)
+        btn_generate_movie.clicked.connect(open_generate_dialog_clicked)
 
         toolbar.addWidget(btn_new_project)
         toolbar.addWidget(btn_load_project)
@@ -368,6 +372,7 @@ class MainWindow(QMainWindow):
             if slide is None:
                 continue
             proj.add_slide(project.Slide(slide.path, slide.face_rect))
+        proj.settings = self.settings
         return proj
 
     def save_last_opened(self, path):
@@ -391,15 +396,18 @@ class MainWindow(QMainWindow):
             with open(expanded, "w") as rcfile:
                 yaml.dump(rc, rcfile)
         except Exception as e:
-            print(e)
             print("could not write ~/.facemovierc")
+            print(e)
 
     def load_project(self, project_file):
         self.start_new_project()
-        self.project = project.Project.load(project_file)
+        proj = project.Project.load(project_file)
+
+        self.settings = proj.settings
+
         self.current_project_path = project_file
         self.save_last_opened(project_file)
-        for slide in self.project.slides:
+        for slide in proj.slides:
             self.add_slide(slide)
 
     def add_images_from_dir(self, dirname):
@@ -410,6 +418,7 @@ class MainWindow(QMainWindow):
 
     def start_new_project(self):
         self.save_last_opened(None)
+        self.settings = Settings()
         self.image_list_model.clear()
         self.current_image_faces = []
         self.set_selected_slide(None)

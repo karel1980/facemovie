@@ -34,16 +34,6 @@ class Slide:
             self.input_eyes[1] - self.input_eyes[0])
 
 
-class Settings:
-    def __init__(self, fade_in_millis=500, show_millis=2000, fade_out_millis=1000, target_size=(768, 1024),
-                 fps=25):
-        self.fade_in_millis = fade_in_millis
-        self.show_millis = show_millis
-        self.fade_out_millis = fade_out_millis
-        self.target_size = target_size
-        self.fps = fps
-
-
 def main():
     if len(sys.argv) != 3:
         print("usage: %s <project.json> <output.mov>")
@@ -53,19 +43,20 @@ def main():
     output_file = sys.argv[2]
 
     proj = project.Project.load(project_file)
-    settings = Settings(fps=25)  # TODO: make settings part of the project?
+    proj.settings.output_path = output_file
+    settings = proj.settings  # TODO: make settings part of the project?
 
-    generate_facemovie(proj, settings, output_file)
+    generate_facemovie(proj, settings)
 
 
-def generate_facemovie(project, settings, output_file):
+def generate_facemovie(project, settings):
     face_mesh = mp.solutions.face_mesh.FaceMesh(static_image_mode=False, max_num_faces=10)
     slides = calculate_slides(project, settings, face_mesh)
     next_print_time = time.time()
     total_frames = calculate_total_frames(settings, len(slides))
     w, h = (settings.target_size[1], settings.target_size[0])
     fourcc = cv2.VideoWriter_fourcc('m', 'p', '4', 'v')
-    vid = cv2.VideoWriter(output_file, fourcc, settings.fps, (w, h))
+    vid = cv2.VideoWriter(settings.output_path, fourcc, settings.fps, (w, h))
     frame_num = 0
     for frame in generate_frames(settings, slides):
         frame_num += 1
@@ -74,7 +65,7 @@ def generate_facemovie(project, settings, output_file):
             next_print_time += 1
 
         vid.write(frame)
-    print("finished writing", output_file)
+    print("finished writing", settings.output_path)
     vid.release()
 
 
@@ -166,7 +157,6 @@ def generate_frames(settings, slides):
 
         if slides[slide_idx] != current_slide:
             current_slide = slides[slide_idx]
-            #print('loading face', current_slide.img_path)
             img = cv2.imread(current_slide.img_path)
             current_face_img = orient_image(img, current_slide, settings.target_size)
 
@@ -179,11 +169,9 @@ def generate_frames(settings, slides):
         alpha = max(0, min(1, alpha))
 
         if alpha < 1:
-            # print("frame = backdrop + current@", alpha)
             frame = overlay_image(backdrop.copy(), current_face_img, alpha)
 
         if alpha == 1 and not added_to_backdrop:
-            # print("adding full image to backdrop")
             backdrop = overlay_image(backdrop.copy(), current_face_img, alpha)
             added_to_backdrop = True
             frame = backdrop
@@ -223,9 +211,6 @@ def show_points(img, pts, color=(255, 255, 255)):
 def overlay_image(base, overlay, alpha=1.0):
     overlay_noalpha = overlay[:, :, :3]
     mask = overlay[:, :, 3:] / 255
-    # print(base.shape)
-    # print(overlay.shape)
-    # print(mask.shape)
 
     base = (1.0 - (mask * alpha)) * base + (mask * alpha) * overlay_noalpha
     return base.astype(np.uint8)

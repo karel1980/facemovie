@@ -30,6 +30,7 @@ When you have a project file, you can generate the movie from the command line.
 * Get rid of the possible mismatches between faces detected by mediapipe and face_recognition libraries
 * GUI: allow reordering images
 * Video generator: take the selected face into account 
-* Show progress bar while generating the video
+* Show progress bar while generating the video + video queue
 * Packaging, choose a file extension for the project file
 * Allow specifying settings when using the cli to generate a movie
+* Improve CLI: allow overwriting settings from project json
