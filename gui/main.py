@@ -7,13 +7,13 @@ import cv2
 import face_recognition
 import numpy as np
 import yaml
-from PyQt5.QtCore import Qt
-from PyQt5.QtGui import QStandardItemModel, QStandardItem, QImage, QPixmap, QWindow
+from PyQt5.QtCore import Qt, QStringListModel
+from PyQt5.QtGui import QStandardItemModel, QStandardItem, QImage, QPixmap
 from PyQt5.QtWidgets import QApplication, QMainWindow, QLabel, QFileDialog, QToolBar, QListView, \
     QHBoxLayout, QWidget, QVBoxLayout, QAbstractItemView, QAction
 
 import project
-from generate_facemovie import generate_facemovie, ProgressWriter
+from generate_facemovie import generate_facemovie
 from gui.components.output_settings import OutputSettingsWindow
 from project import Settings
 
@@ -22,11 +22,38 @@ def face_to_rect(face):
     return project.Rect(project.Point(face[1], face[0]), project.Point(face[3], face[2]))
 
 
-class QueueViewer(QWindow):
+class WorkQueueWindow(QWidget):
+    """
+    This "window" is a QWidget. If it has no parent,
+    it will appear as a free-floating window.
+    """
+
     def __init__(self):
         super().__init__()
+        layout = QVBoxLayout()
+        self.label = QLabel("Work queue")
+        self.list_view = QListView()
+        self.model = QStringListModel()
+        self.list_view.setModel(self.model)
+        layout.addWidget(self.label)
+        layout.addWidget(self.list_view)
+        self.setLayout(layout)
 
-        self.set
+
+class WorkItem:
+    def __init__(self, project):
+        self.project = project
+        self.status = 'QUEUED'
+        self.progress = 0.0 # percentage
+
+    def update(self, new_status, progress=None):
+        self.status = new_status
+        if self.status == 'FINISHED':
+            self.progress = 100
+        else:
+            if self.progress is not None:
+                self.progress = progress
+
 
 class MainWindow(QMainWindow):
     """Main Window."""
@@ -37,6 +64,7 @@ class MainWindow(QMainWindow):
         self.selected_image = QLabel("selected image")
         self.image_list_model = None
         self.image_list = None
+        self.work_queue_window = WorkQueueWindow()
 
         self.generator_thread = None
         self.work_queue = []
@@ -92,6 +120,9 @@ class MainWindow(QMainWindow):
 
         self.action_next_face = QAction("next_face", self)
         self.action_next_face.triggered.connect(self.handle_action_next_face)
+
+        self.action_show_work_queue = QAction("show work queue", self)
+        self.action_show_work_queue.triggered.connect(self.handle_show_work_queue)
 
     def create_imagelist(self):
         image_list = QListView()
@@ -177,6 +208,11 @@ class MainWindow(QMainWindow):
 
     def handle_action_next_face(self):
         self.select_face(1)
+
+    def handle_show_work_queue(self):
+        self.work_queue_window.show()
+        self.work_queue_window.activateWindow()
+        self.work_queue_window.raise_()
 
     def select_face(self, offset):
         item = self.get_selected_item()
@@ -296,27 +332,42 @@ class MainWindow(QMainWindow):
         if self.generator_thread is not None:
             print("Generator thread still working")
             return
-        if len(self.work_queue) == 0:
+
+        work_item = None
+        try:
+            work_item = next(filter(lambda item: item.status == 'QUEUED', self.work_queue))
+        except StopIteration as ex:
+            pass
+
+        if work_item is None:
             print("Queue empty")
             return
 
-        next_project = self.work_queue[0]
+        def update_work_item(*args):
+            state = args[0]
+            if state == 'finished':
+                work_item.update('FINISHED')
+            else:
+                params = args[1:]
+                work_item.update('PROCESSING', params[0] / params[1] * 100)
+
         self.work_queue = self.work_queue[1:]
 
         def do_generate(proj):
             try:
-                generate_facemovie(proj, progress_callback=ProgressWriter().on_progress)
+                generate_facemovie(proj, progress_callback=update_work_item)
             except Exception as ex:
+                work_item.update('FAILED', None)
                 print("Facemovie generation failed", ex)
             self.generator_thread = None
             self.process_next_work_queue_element()
 
-        self.generator_thread = threading.Thread(target=do_generate, args=[next_project])
+        self.generator_thread = threading.Thread(target=do_generate, args=[work_item.project])
         self.generator_thread.start()
 
     def handle_action_generate_facemovie(self):
         def on_generate_dialog_confirmed(settings):
-            self.work_queue.append(self.create_project_from_state())
+            self.work_queue.append(WorkItem(self.create_project_from_state()))
             self.settings = settings
             self.process_next_work_queue_element()
 
@@ -331,6 +382,7 @@ class MainWindow(QMainWindow):
         toolbar.addAction(self.action_save)
         toolbar.addAction(self.action_add_image_directory)
         toolbar.addAction(self.action_generate_facemovie)
+        toolbar.addAction(self.action_show_work_queue)
         return toolbar
 
     def save_project(self, file):
