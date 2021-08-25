@@ -33,7 +33,6 @@ When you have a project file, you can generate the movie from the command line.
 * GUI: allow reordering images
 
 ### ux improvement
-* Show progress bar while generating the video + video queue
 * Action buttons with icons
 * menu bar
 

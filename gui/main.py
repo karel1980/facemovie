@@ -28,8 +28,9 @@ class WorkQueueWindow(QWidget):
     it will appear as a free-floating window.
     """
 
-    def __init__(self):
+    def __init__(self, work_queue):
         super().__init__()
+        self.work_queue = work_queue
         layout = QVBoxLayout()
         self.label = QLabel("Work queue")
         self.list_view = QListView()
@@ -39,12 +40,17 @@ class WorkQueueWindow(QWidget):
         layout.addWidget(self.list_view)
         self.setLayout(layout)
 
+    def update(self):
+        # TODO: figure out which row number to update instead of rebuilding the complete model
+        items = [(item.project.settings.output_path, item.progress) for item in self.work_queue]
+        self.model.setStringList(['%s - %2.2f' % item for item in items ])
+
 
 class WorkItem:
     def __init__(self, project):
         self.project = project
         self.status = 'QUEUED'
-        self.progress = 0.0 # percentage
+        self.progress = 0.0  # percentage
 
     def update(self, new_status, progress=None):
         self.status = new_status
@@ -64,10 +70,11 @@ class MainWindow(QMainWindow):
         self.selected_image = QLabel("selected image")
         self.image_list_model = None
         self.image_list = None
-        self.work_queue_window = WorkQueueWindow()
+
+        self.work_queue = []
+        self.work_queue_window = WorkQueueWindow(self.work_queue)
 
         self.generator_thread = None
-        self.work_queue = []
 
         self._create_actions()
         self.settings = Settings()
@@ -210,6 +217,9 @@ class MainWindow(QMainWindow):
         self.select_face(1)
 
     def handle_show_work_queue(self):
+        self.show_work_queue_window()
+
+    def show_work_queue_window(self):
         self.work_queue_window.show()
         self.work_queue_window.activateWindow()
         self.work_queue_window.raise_()
@@ -347,11 +357,11 @@ class MainWindow(QMainWindow):
             state = args[0]
             if state == 'finished':
                 work_item.update('FINISHED')
+                self.work_queue_window.update()
             else:
                 params = args[1:]
                 work_item.update('PROCESSING', params[0] / params[1] * 100)
-
-        self.work_queue = self.work_queue[1:]
+                self.work_queue_window.update()
 
         def do_generate(proj):
             try:
@@ -364,11 +374,12 @@ class MainWindow(QMainWindow):
 
         self.generator_thread = threading.Thread(target=do_generate, args=[work_item.project])
         self.generator_thread.start()
+        self.show_work_queue_window()
 
     def handle_action_generate_facemovie(self):
         def on_generate_dialog_confirmed(settings):
-            self.work_queue.append(WorkItem(self.create_project_from_state()))
             self.settings = settings
+            self.work_queue.append(WorkItem(self.create_project_from_state()))
             self.process_next_work_queue_element()
 
         dialog = OutputSettingsWindow(settings=self.settings, generate_callback=on_generate_dialog_confirmed)
