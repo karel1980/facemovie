@@ -75,7 +75,6 @@ class ProgressWriter:
 def generate_facemovie(project, settings, progress_callback=None):
     face_mesh = mp.solutions.face_mesh.FaceMesh(static_image_mode=False, max_num_faces=10)
     slides = calculate_slides(project, settings, face_mesh)
-    total_frames = calculate_total_frames(settings, len(slides))
     w, h = (settings.target_size[1], settings.target_size[0])
     fourcc = cv2.VideoWriter_fourcc('m', 'p', '4', 'v')
     vid = cv2.VideoWriter(settings.output_path, fourcc, settings.fps, (w, h))
@@ -88,7 +87,8 @@ def generate_facemovie(project, settings, progress_callback=None):
 
         vid.write(frame)
     vid.release()
-    progress_callback('finished')
+    if progress_callback != None:
+        progress_callback('finished')
 
 
 def calculate_slides(project, settings, face_mesh):
