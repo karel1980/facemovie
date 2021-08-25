@@ -51,27 +51,44 @@ def main():
     proj.settings.output_path = output_file
     settings = proj.settings  # TODO: make settings part of the project?
 
-    generate_facemovie(proj, settings)
+    generate_facemovie(proj, settings, ProgressWriter().on_progress)
 
 
-def generate_facemovie(project, settings):
+class ProgressWriter:
+    def __init__(self, print_interval=1):
+        self.next_print_time = time.time()
+        self.print_interval = print_interval
+
+    def on_progress(self, *args):
+        now = time.time()
+        state = args[0]
+        params = args[1:]
+        if self.next_print_time < now:
+            self.next_print_time += self.print_interval
+            if state == 'generating':
+                print("frame %s / %s" % params)
+                self.next_print_time += 1
+            else:
+                print(state)
+
+
+def generate_facemovie(project, settings, progress_callback=None):
     face_mesh = mp.solutions.face_mesh.FaceMesh(static_image_mode=False, max_num_faces=10)
     slides = calculate_slides(project, settings, face_mesh)
-    next_print_time = time.time()
     total_frames = calculate_total_frames(settings, len(slides))
     w, h = (settings.target_size[1], settings.target_size[0])
     fourcc = cv2.VideoWriter_fourcc('m', 'p', '4', 'v')
     vid = cv2.VideoWriter(settings.output_path, fourcc, settings.fps, (w, h))
     frame_num = 0
+    total_frames = calculate_total_frames(settings, len(slides))
     for frame in generate_frames(settings, slides):
         frame_num += 1
-        if time.time() > next_print_time:
-            print("frame %s / %s" % (frame_num, total_frames))
-            next_print_time += 1
+        if progress_callback is not None:
+            progress_callback('generating', frame_num, total_frames)
 
         vid.write(frame)
-    print("finished writing", settings.output_path)
     vid.release()
+    progress_callback('finished')
 
 
 def calculate_slides(project, settings, face_mesh):
@@ -95,7 +112,6 @@ def calculate_slides(project, settings, face_mesh):
             print("No faces found in %s. Skipped." % (input_slide.path))
             continue
 
-        # TODO: if there are multiple faces, use the one closest to slide.face_rect
         src = get_src_points(find_nearest_face(img.shape, input_slide, mesh_result), img.shape)
         dst = get_target_points(src, settings)
         result.append(Slide(input_slide.path, src, dst, (255, 255, 255, 255), 10))
@@ -151,8 +167,8 @@ def get_target_points(src, settings):
     target_height, target_width = settings.target_size[0], settings.target_size[1]
     left_eye = src[0]
     right_eye = src[1]
-    target_left_eye = np.array([(target_width / 2) - 30, (target_height / 2)])
-    target_right_eye = np.array([(target_width / 2) + 30, (target_height / 2)])
+    target_left_eye = np.array([(target_width / 2) - 30, (target_height * 2 / 5)])
+    target_right_eye = np.array([(target_width / 2) + 30, (target_height * 2 / 5)])
     target_origin = calculate_target_origin_location(left_eye, right_eye, target_left_eye, target_right_eye)
     return np.float32([target_left_eye, target_right_eye, target_origin])
 
@@ -264,7 +280,7 @@ def orient_image(img, slide, target_shape):
 
     input_eye = slide.input_eyes[0] + border_thickness
     img_with_alpha = add_alpha_channel(img)
-    affine_transformation_matrix = cv2.getRotationMatrix2D(input_eye, - slide.get_input_eye_angle() * 180 / math.pi,
+    affine_transformation_matrix = cv2.getRotationMatrix2D(input_eye, slide.get_input_eye_angle() * 180 / math.pi,
                                                            scale)
     affine_transformation_matrix[:, 2] += slide.output_eyes[0] - input_eye
 

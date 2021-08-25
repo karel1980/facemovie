@@ -37,6 +37,10 @@ When you have a project file, you can generate the movie from the command line.
 * Action buttons with icons
 * menu bar
 
+### Movie improvements
+* Sometimes the oriented image eyes are not exactly horizontal. Debug and fix this
+* Allow picking the eye target location
+
 ### various
 * Packaging
 * Choose a non-generic file extension for project files
