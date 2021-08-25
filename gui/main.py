@@ -8,8 +8,8 @@ import face_recognition
 import numpy as np
 import yaml
 from PyQt5.QtCore import Qt
-from PyQt5.QtGui import QStandardItemModel, QStandardItem, QImage, QPixmap
-from PyQt5.QtWidgets import QApplication, QMainWindow, QLabel, QFileDialog, QToolBar, QPushButton, QListView, \
+from PyQt5.QtGui import QStandardItemModel, QStandardItem, QImage, QPixmap, QWindow
+from PyQt5.QtWidgets import QApplication, QMainWindow, QLabel, QFileDialog, QToolBar, QListView, \
     QHBoxLayout, QWidget, QVBoxLayout, QAbstractItemView, QAction
 
 import project
@@ -21,6 +21,12 @@ from project import Settings
 def face_to_rect(face):
     return project.Rect(project.Point(face[1], face[0]), project.Point(face[3], face[2]))
 
+
+class QueueViewer(QWindow):
+    def __init__(self):
+        super().__init__()
+
+        self.set
 
 class MainWindow(QMainWindow):
     """Main Window."""
@@ -201,32 +207,6 @@ class MainWindow(QMainWindow):
         right_panel_layout.setAlignment(Qt.AlignTop)
         slide_tool_bar = QToolBar()
 
-        def on_clear():
-            self.clear_selected_face()
-
-        def go_to_next():
-            selected = self.image_list.selectedIndexes()
-            if len(selected) == 0:
-                self.image_list.setCurrentIndex(self.image_list_model.index(0, 0))
-            else:
-                row, col = (selected[0].row() + 1) % self.image_list_model.rowCount(), selected[0].column()
-                self.image_list.setCurrentIndex(self.image_list_model.index(row, col))
-
-        def go_to_prev():
-            selected = self.image_list.selectedIndexes()
-            list_size = self.image_list_model.rowCount()
-            if len(selected) == 0:
-                self.image_list.setCurrentIndex(self.image_list_model.index(list_size - 1, 0))
-            else:
-                row, col = (selected[0].row() + list_size - 1) % self.image_list_model.rowCount(), selected[0].column()
-                self.image_list.setCurrentIndex(self.image_list_model.index(row, col))
-
-        def select_prev_face():
-            select_face(-1)
-
-        def select_next_face():
-            select_face(1)
-
         def set_face_from_mouseclick(a):
             item = self.get_selected_item()
             if item is None:
@@ -236,41 +216,6 @@ class MainWindow(QMainWindow):
                 return  # data for selected image
             face_rect = project.Rect(project.Point(a.x() - 5, a.y() - 5), project.Point(a.x() + 5, a.y() + 5))
             self.set_selected_slide(project.InputSlide(slide.path, face_rect))
-
-        def select_face(offset):
-            item = self.get_selected_item()
-            if item is None:
-                return  # no image selected
-            slide = item.data(5)
-            if slide is None:
-                return  # no image selected
-
-            if len(self.current_image_faces) == 0:
-                return  # no faces in current image
-
-            if slide.face_rect is None or slide.face_rect not in self.current_image_faces:
-                self.set_selected_slide(project.InputSlide(slide.path, self.current_image_faces[0]))
-                return
-
-            current_face_index = self.current_image_faces.index(slide.face_rect)
-            if current_face_index < 0:
-                self.set_selected_slide(project.InputSlide(slide.path, self.current_image_faces[0]))
-            else:
-                face = self.current_image_faces[
-                    (current_face_index + offset + len(self.current_image_faces)) % len(self.current_image_faces)]
-                self.set_selected_slide(project.InputSlide(slide.path, face))
-
-        btn_prev = QPushButton("prev")
-        btn_prev.clicked.connect(go_to_prev)
-        btn_next = QPushButton("next")
-        btn_next.clicked.connect(go_to_next)
-        btn_clear = QPushButton("clear")
-        btn_clear.clicked.connect(on_clear)
-
-        btn_prev_face = QPushButton("prev face")
-        btn_prev_face.clicked.connect(select_prev_face)
-        btn_next_face = QPushButton("next face")
-        btn_next_face.clicked.connect(select_next_face)
 
         slide_tool_bar.addAction(self.action_previous_image)
         slide_tool_bar.addAction(self.action_next_image)
