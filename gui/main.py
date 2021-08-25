@@ -12,9 +12,9 @@ from PyQt5.QtGui import QStandardItemModel, QStandardItem, QImage, QPixmap
 from PyQt5.QtWidgets import QApplication, QMainWindow, QLabel, QFileDialog, QToolBar, QPushButton, QListView, \
     QHBoxLayout, QWidget, QVBoxLayout, QAbstractItemView, QAction
 
-from gui.components.output_settings import OutputSettingsWindow
 import project
-from generate_facemovie import generate_facemovie
+from generate_facemovie import generate_facemovie, ProgressWriter
+from gui.components.output_settings import OutputSettingsWindow
 from project import Settings
 
 
@@ -28,6 +28,13 @@ class MainWindow(QMainWindow):
     def __init__(self, parent=None):
         """Initializer."""
         super().__init__(parent)
+        self.selected_image = QLabel("selected image")
+        self.image_list_model = None
+        self.image_list = None
+
+        self.generator_thread = None
+        self.work_queue = []
+
         self._create_actions()
         self.settings = Settings()
         self.create_imagelist()
@@ -87,7 +94,7 @@ class MainWindow(QMainWindow):
         self.image_list_model = QStandardItemModel(image_list)
         image_list.setModel(self.image_list_model)
 
-        def on_image_selected(sel):
+        def on_image_selected():
             if self.image_list_model.rowCount() == 0:
                 return
 
@@ -176,7 +183,7 @@ class MainWindow(QMainWindow):
         if len(self.current_image_faces) == 0:
             return  # no faces in current image
 
-        if (slide.face_rect is None or slide.face_rect not in self.current_image_faces):
+        if slide.face_rect is None or slide.face_rect not in self.current_image_faces:
             self.set_selected_slide(project.InputSlide(slide.path, self.current_image_faces[0]))
             return
 
@@ -241,7 +248,7 @@ class MainWindow(QMainWindow):
             if len(self.current_image_faces) == 0:
                 return  # no faces in current image
 
-            if (slide.face_rect is None or slide.face_rect not in self.current_image_faces):
+            if slide.face_rect is None or slide.face_rect not in self.current_image_faces:
                 self.set_selected_slide(project.InputSlide(slide.path, self.current_image_faces[0]))
                 return
 
@@ -272,7 +279,6 @@ class MainWindow(QMainWindow):
         slide_tool_bar.addAction(self.action_next_face)
 
         right_panel_layout.addWidget(slide_tool_bar)
-        self.selected_image = QLabel("selected image")
         self.selected_image.mousePressEvent = set_face_from_mouseclick
 
         right_panel_layout.addWidget(self.selected_image)
@@ -299,13 +305,14 @@ class MainWindow(QMainWindow):
                 project.InputSlide(path,
                                    project.Rect(project.Point(face[1], face[0]), project.Point(face[3], face[2]))))
 
-    def calculate_relative_image_path(self, image_path, project_path):
+    @staticmethod
+    def calculate_relative_image_path(image_path, project_path):
         if project_path is None:
             # TODO: given no project path, fall back to cwd?
             return image_path
 
         project_dir = os.path.dirname(project_path)
-        if image_path.startswith(project_dir + '/'): #TODO: deal with path separator differences across OS
+        if image_path.startswith(project_dir + '/'):  # TODO: deal with path separator differences across OS
             return image_path[len(project_dir) + 1:]
         return image_path
 
@@ -340,13 +347,33 @@ class MainWindow(QMainWindow):
         else:
             self.save_project(self.current_project_path)
 
+    def process_next_work_queue_element(self):
+        if self.generator_thread is not None:
+            print("Generator thread still working")
+            return
+        if len(self.work_queue) == 0:
+            print("Queue empty")
+            return
+
+        next_project = self.work_queue[0]
+        self.work_queue = self.work_queue[1:]
+
+        def do_generate(proj):
+            try:
+                generate_facemovie(proj, progress_callback=ProgressWriter().on_progress)
+            except Exception as ex:
+                print("Facemovie generation failed", ex)
+            self.generator_thread = None
+            self.process_next_work_queue_element()
+
+        self.generator_thread = threading.Thread(target=do_generate, args=[next_project])
+        self.generator_thread.start()
+
     def handle_action_generate_facemovie(self):
         def on_generate_dialog_confirmed(settings):
-            generator_thread = threading.Thread(target=generate_facemovie,
-                                                args=(self.create_project_from_state(), settings))
+            self.work_queue.append(self.create_project_from_state())
             self.settings = settings
-            generator_thread.start()
-            # TODO: monitor progress, use a queue
+            self.process_next_work_queue_element()
 
         dialog = OutputSettingsWindow(settings=self.settings, generate_callback=on_generate_dialog_confirmed)
         dialog.setAttribute(Qt.WA_DeleteOnClose)
@@ -382,17 +409,19 @@ class MainWindow(QMainWindow):
         rc['last_opened'] = path
         self.write_rcfile(rc)
 
-    def load_rcfile(self):
+    @staticmethod
+    def load_rcfile():
         expanded = os.path.expanduser("~/.facemovierc")
         rc = None
         if os.path.exists(expanded):
             try:
                 rc = yaml.load(open(expanded, "r"), Loader=yaml.SafeLoader)
-            except:
+            except Exception:
                 print("could not read ~/.facemovierc")
         return dict() if rc is None else rc
 
-    def write_rcfile(self, rc):
+    @staticmethod
+    def write_rcfile(rc):
         expanded = os.path.expanduser("~/.facemovierc")
         try:
             with open(expanded, "w") as rcfile:

@@ -49,9 +49,8 @@ def main():
 
     proj = project.Project.load(project_file)
     proj.settings.output_path = output_file
-    settings = proj.settings  # TODO: make settings part of the project?
 
-    generate_facemovie(proj, settings, ProgressWriter().on_progress)
+    generate_facemovie(proj, ProgressWriter().on_progress)
 
 
 class ProgressWriter:
@@ -60,21 +59,21 @@ class ProgressWriter:
         self.print_interval = print_interval
 
     def on_progress(self, *args):
-        now = time.time()
         state = args[0]
         params = args[1:]
-        if self.next_print_time < now:
-            self.next_print_time += self.print_interval
-            if state == 'generating':
+        if state == 'generating':
+            now = time.time()
+            if self.next_print_time < now:
+                self.next_print_time += self.print_interval
                 print("frame %s / %s" % params)
-                self.next_print_time += 1
-            else:
-                print(state)
+        else:
+            print(state)
 
 
-def generate_facemovie(project, settings, progress_callback=None):
+def generate_facemovie(project, progress_callback=None):
     face_mesh = mp.solutions.face_mesh.FaceMesh(static_image_mode=False, max_num_faces=10)
-    slides = calculate_slides(project, settings, face_mesh)
+    settings = project.settings
+    slides = calculate_slides(project, face_mesh)
     w, h = (settings.target_size[1], settings.target_size[0])
     fourcc = cv2.VideoWriter_fourcc('m', 'p', '4', 'v')
     vid = cv2.VideoWriter(settings.output_path, fourcc, settings.fps, (w, h))
@@ -91,7 +90,7 @@ def generate_facemovie(project, settings, progress_callback=None):
         progress_callback('finished')
 
 
-def calculate_slides(project, settings, face_mesh):
+def calculate_slides(project, face_mesh):
     """ returns a list of Slides """
 
     result = []
@@ -109,11 +108,11 @@ def calculate_slides(project, settings, face_mesh):
             continue
 
         if not mesh_result.multi_face_landmarks:
-            print("No faces found in %s. Skipped." % (input_slide.path))
+            print("No faces found in %s. Skipped." % input_slide.path)
             continue
 
         src = get_src_points(find_nearest_face(img.shape, input_slide, mesh_result), img.shape)
-        dst = get_target_points(src, settings)
+        dst = get_target_points(src, project.settings)
         result.append(Slide(input_slide.path, src, dst, (255, 255, 255, 255), 10))
 
     return result
